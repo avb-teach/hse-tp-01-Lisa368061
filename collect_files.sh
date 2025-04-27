@@ -58,32 +58,50 @@ copy_flat() {
 
 copy_with_depth() {
   find "$input_dir" -type f -print0 | while IFS= read -r -d '' file; do
-    path="${file#$input_dir/}"
-    dir_path=$(dirname "$path")
+    rel_path="${file#$input_dir/}"
+    filename=$(basename "$rel_path")
+    dir_path=$(dirname "$rel_path")
     
-    depth=$(tr -cd '/' <<< "$dir_path" | wc -c)
+    full_target_dir="$output_dir/$dir_path"
+    mkdir -p "$full_target_dir"
+    
+    if [[ -f "$full_target_dir/$filename" ]]; then
+      unique_name=$(get_unique_filename "$full_target_dir" "$filename")
+      cp "$file" "$full_target_dir/$unique_name"
+    else
+      cp "$file" "$full_target_dir/$filename"
+    fi
+    
     if [[ "$dir_path" == "." ]]; then
-      depth=0
-    else
-      depth=$((depth + 1))
+      continue
     fi
     
-    if (( depth <= max_depth )); then
-      target_dir="$output_dir/$dir_path"
-      mkdir -p "$target_dir"
-      filename=$(basename "$file")
-      dest_path="$target_dir/$filename"
-    else
-      filename=$(basename "$file")
-      target_dir="$output_dir"
-      dest_path="$target_dir/$filename"
-    fi
+    IFS='/' read -ra path_parts <<< "$dir_path"
+    depth=${#path_parts[@]}
     
-    if [[ -f "$dest_path" ]]; then
-      unique_name=$(get_unique_filename "$target_dir" "$filename")
-      cp "$file" "$target_dir/$unique_name"
-    else
-      cp "$file" "$dest_path"
+    if (( depth >= max_depth )); then
+      start_idx=$((max_depth - 2))
+      
+      if (( start_idx >= 0 )); then
+        truncated_parts=()
+        for (( i=start_idx; i<depth; i++ )); do
+          truncated_parts+=("${path_parts[i]}")
+        done
+        
+        truncated_path=$(IFS=/; echo "${truncated_parts[*]}")
+        
+        if [[ -n "$truncated_path" ]]; then
+          truncated_target_dir="$output_dir/$truncated_path"
+          mkdir -p "$truncated_target_dir"
+          
+          if [[ -f "$truncated_target_dir/$filename" ]]; then
+            unique_name=$(get_unique_filename "$truncated_target_dir" "$filename")
+            cp "$file" "$truncated_target_dir/$unique_name"
+          else
+            cp "$file" "$truncated_target_dir/$filename"
+          fi
+        fi
+      fi
     fi
   done
 }
