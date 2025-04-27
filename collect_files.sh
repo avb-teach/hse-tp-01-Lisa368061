@@ -1,28 +1,20 @@
-#!/usr/bin/env bash
-
-
-set -euo pipefail
-
-usage() {
-  echo "Usage: $0 input_dir output_dir [--max_depth N]"
-  exit 1
-}
+#!/bin/bash
 
 if [ $# -lt 2 ]; then
-  usage
+  echo "Usage: $0 input_dir output_dir [--max_depth depth]"
+  exit 1
 fi
 
-input_dir=${1%/}
-output_dir=${2%/}
-shift 2
-
+input_dir="${1%/}"
+output_dir="${2%/}"
 max_depth=""
-if [ $# -eq 2 ] && [ "$1" = "--max_depth" ]; then
-  if ! [[ "$2" =~ ^[0-9]+$ ]] || [ "$2" -le 0 ]; then
+
+if [ $# -eq 4 ] && [ "$3" = "--max_depth" ]; then
+  max_depth=$4
+  if ! [[ "$max_depth" =~ ^[0-9]+$ ]] || [ "$max_depth" -le 0 ]; then
     echo "Error: --max_depth requires a positive integer"
     exit 1
   fi
-  max_depth=$2
 fi
 
 if [ ! -d "$input_dir" ]; then
@@ -32,9 +24,16 @@ fi
 
 mkdir -p "$output_dir"
 
-get_unique_name() {
-  local dir="$1" filename="$2"
-  local base ext candidate counter=1
+get_unique_filename() {
+  local dir="$1"
+  local filename="$2"
+  
+  if [[ ! -f "$dir/$filename" ]]; then
+    echo "$filename"
+    return
+  fi
+  
+  local base ext
   if [[ "$filename" == *.* ]]; then
     base="${filename%.*}"
     ext=".${filename##*.}"
@@ -42,38 +41,53 @@ get_unique_name() {
     base="$filename"
     ext=""
   fi
-  candidate="${base}${ext}"
-  while [ -e "$dir/$candidate" ]; do
-    candidate="${base}${counter}${ext}"
+  
+  local counter=1
+  while [[ -f "$dir/$base$counter$ext" ]]; do
     ((counter++))
   done
-  printf '%s' "$candidate"
+  
+  echo "$base$counter$ext"
 }
 
-export input_dir output_dir max_depth
 find "$input_dir" -type f -print0 | while IFS= read -r -d '' file; do
   rel_path="${file#$input_dir/}"
-  dirpath="$(dirname "$rel_path")"
   filename="$(basename "$rel_path")"
-
+  dirpath="$(dirname "$rel_path")"
+  
   if [ -n "$max_depth" ]; then
-    if [ "$dirpath" = "." ]; then
-      depth=1
-    else
-      depth=$(( $(echo "$dirpath" | awk -F"/" '{print NF}') + 1 ))
-    fi
-
-    if [ "$depth" -le "$max_depth" ]; then
-      target_dir="$output_dir/$dirpath"
-    else
-      last_dir="$(basename "$dirpath")"
-      target_dir="$output_dir/$last_dir"
+    target_dir="$output_dir/$dirpath"
+    mkdir -p "$target_dir"
+    unique_name=$(get_unique_filename "$target_dir" "$filename")
+    cp "$file" "$target_dir/$unique_name"
+    
+    if [ "$dirpath" != "." ]; then
+      IFS='/' read -ra components <<< "$dirpath"
+      depth=${#components[@]}
+      
+      if [ "$depth" -gt "$((max_depth - 1))" ]; then
+        components_to_keep=$((max_depth - 1))
+        start_idx=$((depth - components_to_keep))
+        
+        truncated_path=""
+        for ((i=start_idx; i<depth; i++)); do
+          if [ -z "$truncated_path" ]; then
+            truncated_path="${components[$i]}"
+          else
+            truncated_path="$truncated_path/${components[$i]}"
+          fi
+        done
+        
+        trunc_dir="$output_dir/$truncated_path"
+        mkdir -p "$trunc_dir"
+        unique_trunc=$(get_unique_filename "$trunc_dir" "$filename")
+        cp "$file" "$trunc_dir/$unique_trunc"
+      fi
     fi
   else
-    target_dir="$output_dir"
+    unique_name=$(get_unique_filename "$output_dir" "$filename")
+    cp "$file" "$output_dir/$unique_name"
   fi
-
-  mkdir -p "$target_dir"
-  unique_name=$(get_unique_name "$target_dir" "$filename")
-  cp "$file" "$target_dir/$unique_name"
 done
+
+exit 0
