@@ -9,7 +9,7 @@ input_dir="${1%/}"
 output_dir="${2%/}"
 max_depth=""
 
-if [ $# -ge 4 ] && [ "$3" = "--max_depth" ]; then
+if [ $# -eq 4 ] && [ "$3" = "--max_depth" ]; then
   max_depth=$4
   if ! [[ "$max_depth" =~ ^[0-9]+$ ]] || [ "$max_depth" -le 0 ]; then
     echo "Error: --max_depth requires a positive integer"
@@ -24,7 +24,7 @@ fi
 
 mkdir -p "$output_dir"
 
-get_unique_filename() {
+generate_unique_name() {
   local dir="$1"
   local filename="$2"
   
@@ -50,37 +50,33 @@ get_unique_filename() {
   echo "$base$counter$ext"
 }
 
-process_file() {
-  local target_dir="$1"
-  local file="$2"
-  local filename="$3"
+export -f generate_unique_name
+find "$input_dir" -type f -print0 | while IFS= read -r -d '' filepath; do
+  rel_path="${filepath#$input_dir/}"
   
-  mkdir -p "$target_dir" || return 1
-  unique_name=$(get_unique_filename "$target_dir" "$filename")
-  cp "$file" "$target_dir/$unique_name" || echo "Failed to copy $file to $target_dir"
-}
-
-find "$input_dir" -type f -print0 | while IFS= read -r -d '' file; do
-  rel_path="${file#$input_dir/}"
-  filename="$(basename "$rel_path")"
-  dirpath="$(dirname "$rel_path")"
-
-  if [ -n "$dirpath" ]; then
-    process_file "$output_dir/$dirpath" "$file" "$filename"
+  IFS='/' read -ra path_parts <<< "$rel_path"
+  total_parts=${#path_parts[@]}
+  
+  filename="${path_parts[$((total_parts-1))]}"
+  
+  if [ -z "$max_depth" ]; then
+    dest_file=$(generate_unique_name "$output_dir" "$filename")
+    cp "$filepath" "$output_dir/$dest_file"
   else
-    process_file "$output_dir" "$file" "$filename"
-  fi
-
-  if [ -n "$max_depth" ]; then
-    IFS='/' read -ra path_parts <<< "$dirpath"
-    path_length=${#path_parts[@]}
-    
-    if [ "$path_length" -gt "$max_depth" ]; then
-      trunc_start=$((path_length - max_depth))
-      trunc_parts=("${path_parts[@]:$trunc_start}")
-      trunc_path="$(IFS=/; echo "${trunc_parts[*]}")"
-      process_file "$output_dir/$trunc_path" "$file" "$filename"
+    if [ "$total_parts" -gt "$max_depth" ]; then
+      start_idx=$((total_parts - max_depth))
+    else
+      start_idx=0
     fi
+    
+    target_dir="$output_dir"
+    for ((i=start_idx; i<total_parts-1; i++)); do
+      target_dir="$target_dir/${path_parts[$i]}"
+    done
+    
+    mkdir -p "$target_dir"
+    dest_file=$(generate_unique_name "$target_dir" "$filename")
+    cp "$filepath" "$target_dir/$dest_file"
   fi
 done
 
