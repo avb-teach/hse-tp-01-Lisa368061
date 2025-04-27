@@ -50,10 +50,26 @@ get_unique_filename() {
   echo "$base$counter$ext"
 }
 
+process_file() {
+  local target_dir="$1"
+  local file="$2"
+  local filename="$3"
+  
+  mkdir -p "$target_dir" || return 1
+  unique_name=$(get_unique_filename "$target_dir" "$filename")
+  cp "$file" "$target_dir/$unique_name" || echo "Failed to copy $file to $target_dir"
+}
+
 find "$input_dir" -type f -print0 | while IFS= read -r -d '' file; do
   rel_path="${file#$input_dir/}"
   filename="$(basename "$rel_path")"
   dirpath="$(dirname "$rel_path")"
+
+  if [ -n "$dirpath" ]; then
+    process_file "$output_dir/$dirpath" "$file" "$filename"
+  else
+    process_file "$output_dir" "$file" "$filename"
+  fi
 
   if [ -n "$max_depth" ]; then
     IFS='/' read -ra path_parts <<< "$dirpath"
@@ -63,19 +79,8 @@ find "$input_dir" -type f -print0 | while IFS= read -r -d '' file; do
       trunc_start=$((path_length - max_depth))
       trunc_parts=("${path_parts[@]:$trunc_start}")
       trunc_path="$(IFS=/; echo "${trunc_parts[*]}")"
-      target_dir="$output_dir/$trunc_path"
-      mkdir -p "$target_dir"
-      unique_name=$(get_unique_filename "$target_dir" "$filename")
-      cp "$file" "$target_dir/$unique_name"
-    else
-      target_dir="$output_dir/$dirpath"
-      mkdir -p "$target_dir"
-      unique_name=$(get_unique_filename "$target_dir" "$filename")
-      cp "$file" "$target_dir/$unique_name"
+      process_file "$output_dir/$trunc_path" "$file" "$filename"
     fi
-  else
-    unique_name=$(get_unique_filename "$output_dir" "$filename")
-    cp "$file" "$output_dir/$unique_name"
   fi
 done
 
