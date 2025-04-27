@@ -1,22 +1,54 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-if [ $# -lt 2 ]; then
-  echo "Использование: $0 input_dir output_dir [--max_depth depth]"
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+Использование:
+  $0 INPUT_DIR OUTPUT_DIR [--max_depth N]
+
+  INPUT_DIR    — исходная директория
+  OUTPUT_DIR   — директория для копирования
+  --max_depth N — сохранять структуру каталогов до глубины N (сам INPUT_DIR = 0)
+EOF
   exit 1
+}
+
+if (( $# < 2 )); then
+  usage
 fi
 
 input_dir="$1"
 output_dir="$2"
-max_depth_flag=false
+shift 2
+
+max_depth_mode=false
 max_depth=0
 
-if [ $# -eq 4 ] && [ "$3" = "--max_depth" ]; then
-  max_depth_flag=true
-  max_depth=$4
-fi
+while (( $# > 0 )); do
+  case "$1" in
+    --max_depth)
+      if (( $# < 2 )); then
+        echo "Ошибка: после --max_depth должно идти число" >&2
+        exit 1
+      fi
+      max_depth_mode=true
+      max_depth="$2"
+      if ! [[ "$max_depth" =~ ^[0-9]+$ ]]; then
+        echo "Ошибка: глубина должна быть неотрицательным целым числом" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    *)
+      echo "Неизвестный параметр: $1" >&2
+      usage
+      ;;
+  esac
+done
 
 if [ ! -d "$input_dir" ]; then
-  echo "Ошибка: Входная директория '$input_dir' не существует"
+  echo "Ошибка: входная директория '$input_dir' не существует" >&2
   exit 1
 fi
 
@@ -25,65 +57,40 @@ mkdir -p "$output_dir"
 get_unique_filename() {
   local dir="$1"
   local filename="$2"
-  
-  if [ ! -f "$dir/$filename" ]; then
-    echo "$filename"
+  if [ ! -e "$dir/$filename" ]; then
+    printf '%s\n' "$filename"
     return
   fi
-  
-  if [[ "$filename" == *.* ]]; then
-    local base="${filename%.*}"
-    local ext=".${filename##*.}"
-  else
-    local base="$filename"
-    local ext=""
+  local base="${filename%.*}"
+  local ext=""
+  if [[ "$filename" == *.* && "$base" != "" ]]; then
+    ext=".${filename##*.}"
   fi
-  
-  local counter=1
-  while [ -f "$dir/$base$counter$ext" ]; do
-    ((counter++))
+  local n=1
+  while [ -e "$dir/${base}${n}${ext}" ]; do
+    ((n++))
   done
-  
-  echo "$base$counter$ext"
+  printf '%s\n' "${base}${n}${ext}"
 }
 
-copy_flat() {
-  find "$input_dir" -type f | while read -r file; do
-    filename=$(basename "$file")
-    unique_name=$(get_unique_filename "$output_dir" "$filename")
-    cp "$file" "$output_dir/$unique_name"
-  done
-}
-
-copy_with_depth() {
-  find "$input_dir" -mindepth 1 | while read -r item; do
-    if [ "$item" = "$input_dir" ]; then
-      continue
-    fi
-    
-    rel_path="${item#$input_dir/}"
-    
-    depth=$(echo "$rel_path" | tr -cd '/' | wc -c)
-    
-    if [ "$depth" -lt "$max_depth" ]; then
-      dest_path="$output_dir/$rel_path"
-      
-      if [ -d "$item" ]; then
-        mkdir -p "$dest_path"
-      elif [ -f "$item" ]; then
-        parent_dir=$(dirname "$dest_path")
-        mkdir -p "$parent_dir"
-        
-        cp "$item" "$dest_path"
-      fi
+if [ "$max_depth_mode" = true ]; then
+  find "$input_dir" -mindepth 1 -maxdepth "$max_depth" | while IFS= read -r path; do
+    rel="${path#"$input_dir"/}"
+    dest="$output_dir/$rel"
+    if [ -d "$path" ]; then
+      mkdir -p "$dest"
+    elif [ -f "$path" ]; then
+      mkdir -p "$(dirname "$dest")"
+      cp -p "$path" "$dest"
     fi
   done
-}
 
-if [ "$max_depth_flag" = true ]; then
-  copy_with_depth
 else
-  copy_flat
+  find "$input_dir" -type f | while IFS= read -r filepath; do
+    name="$(basename "$filepath")"
+    unique="$(get_unique_filename "$output_dir" "$name")"
+    cp -p "$filepath" "$output_dir/$unique"
+  done
 fi
 
 exit 0
