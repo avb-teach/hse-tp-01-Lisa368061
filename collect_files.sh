@@ -56,26 +56,42 @@ copy_flat() {
 }
 
 copy_with_depth() {
-  find "$input_dir" -mindepth 1 | while read -r item; do
-    if [ "$item" = "$input_dir" ]; then
+  find "$input_dir" -type d | while read -r dir; do
+    if [ "$dir" = "$input_dir" ]; then
       continue
     fi
     
-    rel_path="${item#$input_dir/}"
+    rel_path="${dir#$input_dir/}"
     
-    depth=$(echo "$rel_path" | tr -cd '/' | wc -c)
+    depth=0
+    if [ -n "$rel_path" ]; then
+      depth=$(echo "$rel_path" | grep -o "/" | wc -l)
+      depth=$((depth + 1)) 
+    fi
     
-    if [ "$depth" -lt "$max_depth" ]; then
-      dest_path="$output_dir/$rel_path"
-      
-      if [ -d "$item" ]; then
-        mkdir -p "$dest_path"
-      elif [ -f "$item" ]; then
-        parent_dir=$(dirname "$dest_path")
-        mkdir -p "$parent_dir"
-        
-        cp "$item" "$dest_path"
-      fi
+    if [ "$depth" -le "$max_depth" ]; then
+      mkdir -p "$output_dir/$rel_path"
+    fi
+  done
+  
+  find "$input_dir" -type f | while read -r file; do
+    rel_path="${file#$input_dir/}"
+    dir_path=$(dirname "$rel_path")
+    
+    depth=0
+    if [ "$dir_path" != "." ]; then
+      depth=$(echo "$dir_path" | grep -o "/" | wc -l)
+      depth=$((depth + 1))  
+    fi
+    
+    if [ "$depth" -le "$max_depth" ]; then
+      dest_dir="$output_dir/$dir_path"
+      mkdir -p "$dest_dir"
+      cp "$file" "$dest_dir/$(basename "$file")"
+    else
+      filename=$(basename "$file")
+      unique_name=$(get_unique_filename "$output_dir" "$filename")
+      cp "$file" "$output_dir/$unique_name"
     fi
   done
 }
