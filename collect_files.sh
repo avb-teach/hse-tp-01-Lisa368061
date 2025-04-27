@@ -56,85 +56,48 @@ copy_flat() {
 }
 
 copy_with_depth() {
+  # Создаем структуру директорий до max_depth
   find "$input_dir" -type d | while read -r dir; do
     if [ "$dir" = "$input_dir" ]; then
       continue
     fi
     
     rel_path="${dir#$input_dir/}"
-    
-    depth=0
-    if [ -n "$rel_path" ]; then
-      depth=$(echo "$rel_path" | grep -o "/" | wc -l)
-      depth=$((depth + 1)) 
-    fi
+    depth=$(echo "$rel_path" | tr -cd '/' | wc -c)
+    depth=$((depth + 1))
     
     if [ "$depth" -le "$max_depth" ]; then
       mkdir -p "$output_dir/$rel_path"
     fi
   done
   
+  # Обрабатываем файлы
   find "$input_dir" -type f | while read -r file; do
     rel_path="${file#$input_dir/}"
     dir_path=$(dirname "$rel_path")
     
-    depth=0
-    if [ "$dir_path" != "." ]; then
-      depth=$(echo "$dir_path" | grep -o "/" | wc -l)
-      depth=$((depth + 1))  
+    if [ "$dir_path" = "." ]; then
+      depth=0
+    else
+      depth=$(echo "$dir_path" | tr -cd '/' | wc -c)
+      depth=$((depth + 1))
     fi
     
     if [ "$depth" -le "$max_depth" ]; then
       dest_dir="$output_dir/$dir_path"
       mkdir -p "$dest_dir"
-      cp "$file" "$dest_dir/$(basename "$file")"
+      filename=$(basename "$file")
+      if [ -f "$dest_dir/$filename" ]; then
+        unique_name=$(get_unique_filename "$dest_dir" "$filename")
+        cp "$file" "$dest_dir/$unique_name"
+      else
+        cp "$file" "$dest_dir/$filename"
+      fi
     else
       filename=$(basename "$file")
       unique_name=$(get_unique_filename "$output_dir" "$filename")
       cp "$file" "$output_dir/$unique_name"
     fi
-  done
-
-  find "$input_dir" -mindepth 2 -type d | while read -r dir; do
-    rel_path="${dir#$input_dir/}"
-    
-    depth=0
-    if [ -n "$rel_path" ]; then
-      depth=$(echo "$rel_path" | grep -o "/" | wc -l)
-      depth=$((depth + 1)) 
-    fi
-    
-    if [ "$depth" -gt "$max_depth" ]; then
-      continue
-    fi
-    
-    dir_name=$(basename "$dir")
-    
-    new_root="$output_dir/$dir_name"
-    
-    if [ -d "$new_root" ]; then
-      continue
-    fi
-    
-    mkdir -p "$new_root"
-    
-    remaining_depth=$((max_depth - depth + 1))
-    
-    find "$dir" -maxdepth $remaining_depth | while read -r item; do
-      if [ "$item" = "$dir" ]; then
-        continue
-      fi
-      
-      rel_item="${item#$dir/}"
-      
-      if [ -d "$item" ]; then
-        mkdir -p "$new_root/$rel_item"
-      elif [ -f "$item" ]; then
-        dest_dir="$new_root/$(dirname "$rel_item")"
-        mkdir -p "$dest_dir"
-        cp "$item" "$dest_dir/$(basename "$item")"
-      fi
-    done
   done
 }
 
